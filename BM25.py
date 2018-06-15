@@ -6,9 +6,8 @@
 #              also several evaluation methods (precision, recall, P@10, MAP, NDCG@10)
 #              are used.
 #              Tested under Python 3.5 on Ubuntu 16.04.
-# Author: Yongzhen Ren
+# Author: '(Yungchen J.)
 # Date created: 2018-05-07
-# Usage: see in `README.md`.
 
 # Here are some Python standard modules used in the script.
 import argparse
