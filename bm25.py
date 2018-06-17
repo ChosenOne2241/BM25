@@ -3,8 +3,8 @@
 
 # Description: Build a structural data from orginial Cranfield collection and
 #              implement the BM25 alogrithm information retrieval;
-#              also several evaluation methods (precision, recall, P at 10, MAP, NDCG at 10)
-#              are applied.
+#              also 5 evaluation methods (precision, recall, MAP, P at N and
+#              NDCG at N) are applied.
 #              Tested under Python 3.5 on Ubuntu 16.04.
 # Author: '(Yungchen J.)
 # Date created: 2018-05-07
@@ -14,10 +14,10 @@ import argparse
 # Used to parse program arguments.
 # More details are here: https://docs.python.org/3/library/argparse.html
 import readline
-# Used to read and write history files from the Python interpreter.
+# Used to create a typing history buffer.
 # More details are here: https://docs.python.org/3/library/readline.html
 import json # Create a human-readable .json file for index information.
-import string # Used by some regex operations.
+import string # Used to do some regex operations.
 import math
 import os
 
@@ -25,12 +25,13 @@ import os
 import porter
 
 STOP_WORDS_PATH = "stopwords.txt"
-DOCUMENT_PATH = "./Cranfield_Collection/cranfield_collection.txt"
-QUERY_PATH = "./Cranfield_Collection/cranfield_queries.txt"
-RELEVANCE_PATH = "./Cranfield_Collection/cranfield_relevance.txt"
+DOCUMENT_PATH = "./cran/cran.all.1400"
+QUERY_PATH = "./cran/cran.qry"
+RELEVANCE_PATH = "./cran/cranqrel"
 INDEX_PATH = "index.json"
+EVALUATION_PATH = "evaluation_output.txt"
 
-# Labels in `cranfield_collection.txt` and `cranfield_queries.txt` files.
+# Labels in `cran.all.1400` and `cranqrel` text files.
 ID = ".I"
 TITLE = ".T"
 AUTHORS = ".A"
@@ -39,7 +40,7 @@ WORDS = ".W"
 LABELS = [ID, TITLE, AUTHORS, BIBLIOGRAPHY, WORDS]
 CONTENTS = [AUTHORS, BIBLIOGRAPHY, WORDS]
 
-MOST_SIMILAR = 15 # At most return top `MOST_SIMILAR` results.
+MOST_REVEVANT = 15 # At most return top `MOST_REVEVANT` results for each query.
 USER_STOP_WORD = "QUIT"
 # When user types `USER_STOP_WORD`, the program ends; it is case-sensitive.
 
@@ -48,7 +49,7 @@ K = 1.0
 B = 0.75
 
 N = 10
-# A constant used in Precision at n and NDCG (Normalised Discounted Cumulated Gain).
+# A constant used in Precision at N and NDCG (Normalised Discounted Cumulated Gain) at N.
 
 def is_number(word):
 	""" A helper function to check if a string can be converted to an integer.
@@ -70,8 +71,9 @@ def is_valid(word):
 		return False
 
 def get_arguments():
-	parser = argparse.ArgumentParser(description = "A script used to build BM25 model and relative evaluation methods. If the index .json file is not available, just type `python3 bm25.py` without any extra arguments to generate one in the working directory; if it is available and `-m` option is not offered, `manual` mode is chosen by default.")
-	parser.add_argument("-m", required = False, help = "mode selection", choices = ["manual", "evaluation"], default = "manual")
+	parser = argparse.ArgumentParser(description = "A script used to build BM25 model and relative evaluation methods. If the index .json file is not available, just type `python3 bm25.py` without any extra arguments to generate one in the working directory.")
+	parser.add_argument("-m", required = False, choices = ["manual", "evaluation"], default = "manual", help = "mode selection; `manual` mode is chosen by default if it is not specified")
+	parser.add_argument("-o", required = False, nargs = "?", const = EVALUATION_PATH, metavar = "FILE NAME", help = "evaluation result output; if `FILE NAME` is not given, the default output file name is `evaluation_output.txt`")
 	return parser.parse_args()
 
 def load_stop_words(stop_words_path):
@@ -184,7 +186,7 @@ def process_single_query(query):
 			query_terms.append(stemmed_word)
 
 	query_terms = []
-	query = query.strip() # Remove leading and trailing whitespace.
+	query = query.strip() # Remove leading and trailing whitespaces.
 	query = query.translate(removing_punctuation_map)
 	query = query.replace("--", " ")
 	for term in query.split():
@@ -226,7 +228,7 @@ def process_queries(query_path):
 	return query_list
 
 def bm25_similarities(query):
-	''' Using `query`, return a descending list with top `MOST_SIMILAR` pairs
+	''' Using `query`, return a descending list with at most top `MOST_REVEVANT` pairs
 	    based on BM25 to calculate similarities.
         Pair structure is (Document ID, Similarity).
 	'''
@@ -241,24 +243,29 @@ def bm25_similarities(query):
 				n_i = len(term_vectors[term])
 				idf = math.log((nums_of_documents - n_i + 0.5) / (n_i + 0.5), 2)
 				similarity += frequency * (1.0 + K) / (frequency + K * ((1.0 - B) + B * document_lengths[document_ID])) * idf
-		pair = (int(document_ID), similarity)
-		similarities.append(pair)
-
-	# Sort results in desceding order and return the top `MOST_SIMILAR` ones.
-	sorted_similarities = sorted(similarities, key = lambda x : x[1], reverse = True)
-	return sorted_similarities[0:MOST_SIMILAR]
+		if similarity > 0.0: # Ignore the one with similarity score 0.
+			pair = (int(document_ID), similarity)
+			similarities.append(pair)
+	if len(similarities) > 1:
+		# Sort results in desceding order.
+		similarities = sorted(similarities, key = lambda x : x[1], reverse = True)
+		if len(similarities) > MOST_REVEVANT:
+			return similarities[0:MOST_REVEVANT]
+	return similarities
 
 def manual_mode():
 	while True:
-		user_query = input("Enter query: ")
+		user_query = input("Enter query (type \"QUIT\" to terminate): ")
 		if user_query == USER_STOP_WORD:
 			break
 		query_terms = process_single_query(user_query)
 		print("Results for query " + str(query_terms))
+		print("Rank\tID\tScore")
 		rank = 1
 		for result in bm25_similarities(query_terms):
-			print("{0} {1} {2}".format(str(rank), result[0], str(result[1])), end = "\n")
+			print("{0}\t{1}\t{2}".format(str(rank), result[0], str(result[1])), end = "\n")
 			rank += 1
+		print("**********************************")
 
 def make_relevance():
 	relevance = {}
@@ -278,7 +285,7 @@ def make_relevance():
 		relevance[query] = sorted(relevance[query], key = lambda x : x[1])
 	return relevance
 
-def make_evaluation():
+def make_similarity_list():
 	bm25_similarity_list = {}
 	for query_ID in query_list:
 		rank = 1
@@ -288,7 +295,7 @@ def make_evaluation():
 			rank += 1
 	return bm25_similarity_list
 
-def evaluation_results():
+def print_evaluation_results():
 	print("Evaluation Results:")
 	print("Precision: {0}".format(precision()), end = "\n")
 	print("Recall: {0}".format(recall()), end = "\n")
@@ -359,8 +366,6 @@ def NDCG_at_n(n):
 	return NDCG_at_n
 
 if __name__ == "__main__":
-	# These variables are accessed by functions `process_documents` and
-	# `process_queries` according to LEGB rule.
 	stemmer = porter.PorterStemmer()
 	stop_words = load_stop_words(STOP_WORDS_PATH)
 	punctuation = string.punctuation[0:12] + string.punctuation[14:]
@@ -369,7 +374,7 @@ if __name__ == "__main__":
 	args = get_arguments()
 
 	if os.path.exists(INDEX_PATH):
-		print("Loading BM25 index from file; please wait.")
+		print("Loading BM25 index from file.")
 		with open(INDEX_PATH, "r") as fp:
 			stemming, term_vectors, document_lengths = json.load(fp)
 			# WARNING: JSON does not allow integer keys; key values of variable
@@ -382,9 +387,15 @@ if __name__ == "__main__":
 		elif args.m == "evaluation":
 			query_list = process_queries(QUERY_PATH)
 			relevance = make_relevance()
-			bm25_similarity_list = make_evaluation()
-			evaluation_results()
+			bm25_similarity_list = make_similarity_list()
+			print_evaluation_results()
+			if args.o is not None: # If `-o` option is available.
+				with open(args.o, "w") as fp:
+					for query_ID, entry_list in bm25_similarity_list.items():
+						for entry in entry_list:
+							fp.write("{0} {1} {2}\n".format(query_ID, entry[0], entry[1]))
 	else:
 	# For first-time running, it creates an index .json file and quit.
+		print("Generating the index file.")
 		with open(INDEX_PATH, "w") as fp:
 			json.dump(process_documents(DOCUMENT_PATH), fp)
