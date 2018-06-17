@@ -1,7 +1,7 @@
 # BM25
 The script `BM25.py` searches the [Cranfield collection](http://ir.dcs.gla.ac.uk/resources/test_collections/cran/) using the [BM25](https://en.wikipedia.org/wiki/Okapi_BM25), with queries supplied by the user. 
 
-For the first time one runs the script by simply typing `python3 BM25.py`, a `.json` file called `index.json` is generated containing a dictionary with words and their stemming forms, term vectors, and lengths for each document abstract. From the second times, `index.json` must exist in the same directory and is used to calculate ranks; Mode can be selected by using the `-m` flag, which is compulsory. Possible options are `manual` and `evaluation`. Selecting `evaluation` will run and evaluate the results for all queries in the `cranfield_queries.txt` file.An output file named ``evaluation_output.txt`` is created. Each line in this file has three fields, separated by spaces, as follows:
+For the first time one runs the script by simply typing `python3 bm25.py`, a `.json` file called `index.json` is generated containing a dictionary with words and their stemming forms, term vectors, and lengths for each document abstract. From the second times onwards, `index.json` must exist in the same directory and is used to calculate ranks. Mode can be selected by using the `-m` flag, whose default value is `manual`. Possible options are `manual` and `evaluation`. Selecting `evaluation` will run and evaluate the results for all queries in the `cranfield_queries.txt` file.An output file named ``evaluation_output.txt`` is created. Each line in this file has three fields, separated by spaces, as follows:
 
 1. Query ID.
 2. Document ID.
@@ -10,7 +10,8 @@ For the first time one runs the script by simply typing `python3 BM25.py`, a `.j
 And selecting `manual` will allow users to type queries from keyword until a stop word `QUIT` is entered or KeyboardInterrupt exception is raised. And in `manual` mode, the script maintains a buffer for typing history, which means user can use arrow keys to browse history for current session. Type `python3 BM25.py -h` for more help information.
 
 Here is a list of all files in the repository:
-* `BM25.py` is the main function to run.
+
+* `bm25.py` is the main function to run.
 * `stopwords.txt` is a list to eliminate words that one should not bother including in feature vectors.
 * `porter.py` is a Python implementation of the Porter stemming algorithm for English language, downloaded from [author's main page](https://tartarus.org/martin/PorterStemmer/).
 * And in `Cranfield_Collection` directory, there are the following documents:

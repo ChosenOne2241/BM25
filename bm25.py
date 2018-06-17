@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 # Description: Build a structural data from orginial Cranfield collection and
-#              implement the BM25 alogrithm in nformation retrieval;
-#              also several evaluation methods (precision, recall, P@10, MAP, NDCG@10)
-#              are used.
+#              implement the BM25 alogrithm information retrieval;
+#              also several evaluation methods (precision, recall, P at 10, MAP, NDCG at 10)
+#              are applied.
 #              Tested under Python 3.5 on Ubuntu 16.04.
 # Author: '(Yungchen J.)
 # Date created: 2018-05-07
@@ -28,10 +28,9 @@ STOP_WORDS_PATH = "stopwords.txt"
 DOCUMENT_PATH = "./Cranfield_Collection/cranfield_collection.txt"
 QUERY_PATH = "./Cranfield_Collection/cranfield_queries.txt"
 RELEVANCE_PATH = "./Cranfield_Collection/cranfield_relevance.txt"
-EVALUATION_PATH = "evaluation_output.txt"
 INDEX_PATH = "index.json"
 
-# Labels in `cranfield_collection.txt` file.
+# Labels in `cranfield_collection.txt` and `cranfield_queries.txt` files.
 ID = ".I"
 TITLE = ".T"
 AUTHORS = ".A"
@@ -40,25 +39,20 @@ WORDS = ".W"
 LABELS = [ID, TITLE, AUTHORS, BIBLIOGRAPHY, WORDS]
 CONTENTS = [AUTHORS, BIBLIOGRAPHY, WORDS]
 
-MOST_SIMILAR = 15 # Only return top `MOST_SIMILAR` results.
-USER_STOP_WORD = "QUIT" # When user types `USER_STOP_WORD`, the program ends.
+MOST_SIMILAR = 15 # At most return top `MOST_SIMILAR` results.
+USER_STOP_WORD = "QUIT"
+# When user types `USER_STOP_WORD`, the program ends; it is case-sensitive.
 
 # Constants in BM25 model.
 K = 1.0
 B = 0.75
 
 N = 10
-# A constant used in Precision at n and Normalised Discounted Cumulated Gain (NDCG).
-
-def load_stop_words(stop_words_path):
-	stop_words = set()
-	with open(stop_words_path, "r") as fp:
-		for line in fp:
-			stop_words.add(line.rstrip())
-	return stop_words
+# A constant used in Precision at n and NDCG (Normalised Discounted Cumulated Gain).
 
 def is_number(word):
 	""" A helper function to check if a string can be converted to an integer.
+        Used to process documents and queries.
 	"""
 	try:
 		int(word)
@@ -68,12 +62,24 @@ def is_number(word):
 
 def is_valid(word):
 	""" A helper function to check if a string is valid.
+        Used to process documents and queries.
 	"""
 	if word != "" and word not in stop_words and not is_number(word):
-	# `word` is not empty, is not a stop word and not a number.
 		return True
 	else:
 		return False
+
+def get_arguments():
+	parser = argparse.ArgumentParser(description = "A script used to build BM25 model and relative evaluation methods. If the index .json file is not available, just type `python3 bm25.py` without any extra arguments to generate one in the working directory; if it is available and `-m` option is not offered, `manual` mode is chosen by default.")
+	parser.add_argument("-m", required = False, help = "mode selection", choices = ["manual", "evaluation"], default = "manual")
+	return parser.parse_args()
+
+def load_stop_words(stop_words_path):
+	stop_words = set()
+	with open(stop_words_path, "r") as fp:
+		for line in fp:
+			stop_words.add(line.rstrip())
+	return stop_words
 
 def process_documents(document_path):
 	""" Build vectors of each term and calculate lengths of each documents.
@@ -90,11 +96,12 @@ def process_documents(document_path):
 		else:
 			(term_vectors[stemmed_word])[document_ID] += 1
 
-	average_length = 0.0
-	num_of_documents = 0
+	stemming = {}
 	term_vectors = {}
 	# `term_vectors` structure: {[Key] Term : [Value] {[Key] Document ID : [Value] Appearance Times}}.
 	document_lengths = {}
+	average_length = 0.0
+	num_of_documents = 0
 	with open(document_path, "r") as fp:
 		document_ID = 0
 		length = 0.0
@@ -164,12 +171,10 @@ def process_documents(document_path):
 		document_lengths[document] = document_lengths[document] / average_length
 		# Now document_lengths stores a normalised length for each document.
 
-	json_structure = [stemming, term_vectors, document_lengths]
-	# A dictionary for stemming is also written into .json file for further use.
-	with open(INDEX_PATH, "w") as fp:
-		json.dump(json_structure, fp)
+	# A dictionary for stemming is also returned for further use.
+	return stemming, term_vectors, document_lengths
 
-def process_query(query):
+def process_single_query(query):
 	def add_new_word(word):
 	# A helper function to add a new word in `query_terms`.
 		if word not in stemming:
@@ -194,33 +199,6 @@ def process_query(query):
 						add_new_word(element)
 	return query_terms
 
-def bm25(query):
-	''' Using `query`, return a descending list with top `MOST_SIMILAR` pairs
-	    according to similarities. Pair structure is (Document ID, Similarity).
-	'''
-	similarities = []
-	for index in range(0, nums_of_documents):
-		document_ID = str(index + 1)
-		# Keys in key/value pairs of JSON are always of the type `str`.
-		similarity = 0.0
-		for term in query:
-			if term in term_vectors and document_ID in term_vectors[term]:
-				frequency = (term_vectors[term])[document_ID]
-				n_i = len(term_vectors[term])
-				idf = math.log((nums_of_documents - n_i + 0.5) / (n_i + 0.5), 2)
-				similarity += frequency * (1.0 + K) / (frequency + K * ((1.0 - B) + B * normalised_document_lengths[document_ID])) * idf
-		pair = (int(document_ID), similarity)
-		similarities.append(pair)
-
-	# Sort results in desceding order and return the top `MOST_SIMILAR` ones.
-	bm25_results = sorted(similarities, key = lambda x : x[1], reverse = True)
-	return bm25_results[0:MOST_SIMILAR]
-
-def get_arguments():
-	parser = argparse.ArgumentParser(description = "A script used to build BM25 model and relative evaluation methods.")
-	parser.add_argument("-m", required = True, help = "mode selection", choices = ["manual", "evaluation"])
-	return parser.parse_args()
-
 def process_queries(query_path):
 	with open(query_path, "r") as fp:
 		query_list = {}
@@ -240,24 +218,83 @@ def process_queries(query_path):
 				continue
 			if section in CONTENTS:
 				if query == []:
-					query = process_query(line)
+					query = process_single_query(line)
 				else:
-					query += process_query(line) # TODO: Repetitive words!!!!!!
+					query += process_single_query(line)
 		query_list[query_ID] = query # Add the last entry.
 		del query_list[0] # Skip the first one.
 	return query_list
 
-def make_evaluation(evaluation_path):
-	with open(evaluation_path, "w") as fp:
-		bm25_results = {}
-		for query_ID in query_list:
-			rank = 1
-			bm25_results[query_ID] = []
-			for entry in bm25(query_list[query_ID]):
-				bm25_results[query_ID].append((entry[0], rank))
-				fp.write("{0} {1} {2}\n".format(query_ID, entry[0], rank))
-				rank += 1
-	return bm25_results
+def bm25_similarities(query):
+	''' Using `query`, return a descending list with top `MOST_SIMILAR` pairs
+	    based on BM25 to calculate similarities.
+        Pair structure is (Document ID, Similarity).
+	'''
+	similarities = []
+	for index in range(0, nums_of_documents):
+		document_ID = str(index + 1)
+		# Keys in key/value pairs of JSON are always of the type `str`.
+		similarity = 0.0
+		for term in query:
+			if term in term_vectors and document_ID in term_vectors[term]:
+				frequency = (term_vectors[term])[document_ID]
+				n_i = len(term_vectors[term])
+				idf = math.log((nums_of_documents - n_i + 0.5) / (n_i + 0.5), 2)
+				similarity += frequency * (1.0 + K) / (frequency + K * ((1.0 - B) + B * document_lengths[document_ID])) * idf
+		pair = (int(document_ID), similarity)
+		similarities.append(pair)
+
+	# Sort results in desceding order and return the top `MOST_SIMILAR` ones.
+	sorted_similarities = sorted(similarities, key = lambda x : x[1], reverse = True)
+	return sorted_similarities[0:MOST_SIMILAR]
+
+def manual_mode():
+	while True:
+		user_query = input("Enter query: ")
+		if user_query == USER_STOP_WORD:
+			break
+		query_terms = process_single_query(user_query)
+		print("Results for query " + str(query_terms))
+		rank = 1
+		for result in bm25_similarities(query_terms):
+			print("{0} {1} {2}".format(str(rank), result[0], str(result[1])), end = "\n")
+			rank += 1
+
+def make_relevance():
+	relevance = {}
+	# `relevance` structure: {[KEY] query ID : [Value] [(Document ID, relevance Score)]}
+	with open(RELEVANCE_PATH, "r") as fp:
+		for line in fp:
+			parts = line.split()
+			query_ID = int(parts[0])
+			if query_ID not in relevance:
+				relevance[query_ID] = [(int(parts[1]), int(parts[2]))]
+			else:
+				relevance[query_ID].append((int(parts[1]), int(parts[2])))
+			# It guarantees no repetition of document IDs for each query.
+	for query in relevance:
+	# Sort pairs in ascending order for each query; the less the relevance
+	# score is, the more revelant the document is.
+		relevance[query] = sorted(relevance[query], key = lambda x : x[1])
+	return relevance
+
+def make_evaluation():
+	bm25_similarity_list = {}
+	for query_ID in query_list:
+		rank = 1
+		bm25_similarity_list[query_ID] = []
+		for entry in bm25_similarities(query_list[query_ID]):
+			bm25_similarity_list[query_ID].append((entry[0], rank))
+			rank += 1
+	return bm25_similarity_list
+
+def evaluation_results():
+	print("Evaluation Results:")
+	print("Precision: {0}".format(precision()), end = "\n")
+	print("Recall: {0}".format(recall()), end = "\n")
+	print("Mean Average Precision: {0}".format(mean_average_precision(N)), end = "\n")
+	print("P@10: {0}".format(p_at_n(N)), end = "\n")
+	print("NDCG@10: {0}".format(NDCG_at_n(N)), end = "\n")
 
 def precision():
 	precision = 0.0
@@ -266,19 +303,19 @@ def precision():
 		relevance_set = set()
 		for entry in relevance[query]:
 			relevance_set.add(entry[0])
-		for entry in bm25_results[query]:
+		for entry in bm25_similarity_list[query]:
 			if entry[0] in relevance_set:
 				appearance_times += 1
-		precision += appearance_times / len(bm25_results[query])
-	precision = precision / len(bm25_results)
+		precision += appearance_times / len(bm25_similarity_list[query])
+	precision = precision / len(bm25_similarity_list)
 	return precision
 
 def recall():
 	recall = 0.0
-	for query in bm25_results:
+	for query in bm25_similarity_list:
 		appearance_times = 0
 		bm25_set = set()
-		for entry in bm25_results[query]:
+		for entry in bm25_similarity_list[query]:
 			bm25_set.add(entry[0])
 		for entry in relevance[query]:
 			if entry[0] in bm25_set:
@@ -295,12 +332,12 @@ def mean_average_precision(n):
 		map_set = set()
 		for entry in relevance[query]:
 			map_set.add(entry[0])
-		for entry in bm25_results[query]:
+		for entry in bm25_similarity_list[query]:
 			if entry[0] in map_set:
 				appearance_times += 1
 			current_map += appearance_times / entry[1]
 		mean_average_precision += current_map / n
-	mean_average_precision = mean_average_precision / len(bm25_results)
+	mean_average_precision = mean_average_precision / len(bm25_similarity_list)
 	return mean_average_precision
 
 def p_at_n(n):
@@ -310,11 +347,11 @@ def p_at_n(n):
 		relevance_set = set()
 		for entry in relevance[query]:
 			relevance_set.add(entry[0])
-		for entry in bm25_results[query]:
+		for entry in bm25_similarity_list[query]:
 			if entry[0] in relevance_set and entry[1] < n:
 				appearance_times += 1
 		p_at_n += appearance_times / n
-	p_at_n = p_at_n / len(bm25_results)
+	p_at_n = p_at_n / len(bm25_similarity_list)
 	return p_at_n
 
 def NDCG_at_n(n):
@@ -322,9 +359,8 @@ def NDCG_at_n(n):
 	return NDCG_at_n
 
 if __name__ == "__main__":
-	# These variables are accessed by functions `process_documents` and `process_query`
-	# according to LEGB rule.
-	stemming = {}
+	# These variables are accessed by functions `process_documents` and
+	# `process_queries` according to LEGB rule.
 	stemmer = porter.PorterStemmer()
 	stop_words = load_stop_words(STOP_WORDS_PATH)
 	punctuation = string.punctuation[0:12] + string.punctuation[14:]
@@ -333,52 +369,22 @@ if __name__ == "__main__":
 	args = get_arguments()
 
 	if os.path.exists(INDEX_PATH):
-		print("Loading BM25 index from file, please wait.")
+		print("Loading BM25 index from file; please wait.")
 		with open(INDEX_PATH, "r") as fp:
-			stemming, term_vectors, normalised_document_lengths = json.load(fp)
-			# WARNING: JSON has NO number keys; key values of variable loaded
-			# from .json file are `str`.
-
-		nums_of_documents = len(normalised_document_lengths)
+			stemming, term_vectors, document_lengths = json.load(fp)
+			# WARNING: JSON does not allow integer keys; key values of variable
+			# loaded from .json file are `str`.
+		nums_of_documents = len(document_lengths)
+		# It is used in `bm25_similarities()` function.
 
 		if args.m == "manual":
-			while True:
-				user_query = input("Enter query: ")
-				if user_query == USER_STOP_WORD:
-					break
-				query_terms = process_query(user_query)
-				print("Results for query " + str(query_terms))
-				bm25_results = bm25(query_terms)
-				rank = 1
-				for result in bm25_results:
-					print("{0} {1} {2}".format(str(rank), result[0], str(result[1])), end = "\n")
-					rank += 1
+			manual_mode()
 		elif args.m == "evaluation":
 			query_list = process_queries(QUERY_PATH)
-			bm25_results = make_evaluation(EVALUATION_PATH)
-			relevance = {}
-			# `relevance` structure: {[KEY] query ID : [Value] [(Document ID, Revelence Score)]}
-			with open(RELEVANCE_PATH, "r") as fp:
-				for line in fp:
-					parts = line.split()
-					query_ID = int(parts[0])
-					if query_ID not in relevance:
-						relevance[query_ID] = [(int(parts[1]), int(parts[2]))]
-					else:
-						relevance[query_ID].append((int(parts[1]), int(parts[2])))
-					# It guarantees no repetition of document IDs for each query.
-			for query in relevance:
-			# Sort pairs in ascending order for each query; the less the relevance
-			# score is, the more revelant the document is.
-				relevance[query] = sorted(relevance[query], key = lambda x : x[1])
-
-			print("Evaluation Results:")
-			print("Precision: {0}".format(precision()), end = "\n")
-			print("Recall: {0}".format(recall()), end = "\n")
-			print("Mean Average Precision: {0}".format(mean_average_precision(N)), end = "\n")
-			print("P@10: {0}".format(p_at_n(N)), end = "\n")
-			print("NDCG@10: {0}".format(NDCG_at_n(N)), end = "\n")
+			relevance = make_relevance()
+			bm25_similarity_list = make_evaluation()
+			evaluation_results()
 	else:
-	# For first-time running, it creates an index file in .json form
-	# and a history file for further use and quit.
-		process_documents(DOCUMENT_PATH)
+	# For first-time running, it creates an index .json file and quit.
+		with open(INDEX_PATH, "w") as fp:
+			json.dump(process_documents(DOCUMENT_PATH), fp)
