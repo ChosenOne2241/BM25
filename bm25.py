@@ -43,7 +43,7 @@ CONTENTS = [AUTHORS, BIBLIOGRAPHY, WORDS]
 MOST_RELEVANT = 15 # At most return top `MOST_RELEVANT` results for each query.
 USER_STOP_WORD = "QUIT"
 # When user types `USER_STOP_WORD`, the program ends; it is case-sensitive.
-RELEVANCE_SCORE_THRESHOLD = 4
+RELEVANCE_SCORE_THRESHOLD = 3
 # Filter out ones with relevance score larger than `RELEVANCE_SCORE_THRESHOLD`.
 # The default value is 4 (-1, 1, 2, 3, 4).
 
@@ -51,6 +51,7 @@ RELEVANCE_SCORE_THRESHOLD = 4
 K = 1.0
 B = 0.75
 # A constant used in Precision at N and NDCG (Normalised Discounted Cumulated Gain) at N.
+# If `MOST_RELEVANT` is equal to `N`, precision will be the same as P at N.
 N = 10
 
 def is_number(word):
@@ -234,6 +235,8 @@ def bm25_similarities(query):
 	    based on BM25 to calculate similarities.
         Pair structure is (Document ID, Similarity).
 	'''
+	# TODO: sorted_d = [(k,v) for k,v in d.items()]
+	# Change data structure.
 	similarities = []
 	for index in range(0, nums_of_documents):
 		document_ID = str(index + 1)
@@ -329,6 +332,7 @@ def precision():
 				appearance_times += 1
 		precision += appearance_times / len(retrieval_set)
 	precision = precision / len(relevance_scores)
+	# Calculate arithmetic mean of precisions for all queries.
 	return precision
 
 def recall():
@@ -342,33 +346,34 @@ def recall():
 				appearance_times += 1
 		recall += appearance_times / len(relevance_set)
 	recall = recall / len(relevance_scores)
+	# Calculate arithmetic mean of recalls for all queries.
 	return recall
-
-def mean_average_precision(n):
-	mean_average_precision = 0.0
-	for query_ID in relevance_scores:
-		appearance_times = 0
-		current_map = 0.0
-		retrieval_set = make_retrieval_set(query_ID)
-		for pair in query_results[query_ID]:
-			if pair[0] in retrieval_set:
-				appearance_times += 1
-			current_map += appearance_times / pair[1]
-		mean_average_precision += current_map / n
-	mean_average_precision = mean_average_precision / len(query_results)
-	return mean_average_precision
 
 def p_at_n(n):
 	p_at_n = 0.0
 	for query_ID in relevance_scores:
-		appearance_times = 0
 		relevance_set = make_relevance_set(query_ID)
+		appearance_times = 0
 		for pair in query_results[query_ID]:
-			if pair[0] in relevance_set and pair[1] < n:
+			if pair[0] in relevance_set and pair[1] <= n:
 				appearance_times += 1
 		p_at_n += appearance_times / n
 	p_at_n = p_at_n / len(query_results)
 	return p_at_n
+
+def mean_average_precision():
+	mean_average_precision = 0.0
+	for query_ID in relevance_scores:
+		relevance_set = make_relevance_set(query_ID)
+		appearance_times = 0
+		current_map = 0.0
+		for pair in query_results[query_ID]:
+			if pair[0] in relevance_set:
+				appearance_times += 1
+				current_map += appearance_times / pair[1]
+		mean_average_precision += current_map / len(relevance_set)
+	mean_average_precision = mean_average_precision / len(query_results)
+	return mean_average_precision
 
 def NDCG_at_n(n):
 	NDCG_at_n = 0.0
@@ -378,8 +383,8 @@ def print_evaluation_results():
 	print("Evaluation Results:")
 	print("Precision: {0}".format(precision()), end = "\n")
 	print("Recall: {0}".format(recall()), end = "\n")
-	print("Mean Average Precision: {0}".format(mean_average_precision(N)), end = "\n")
 	print("P@10: {0}".format(p_at_n(N)), end = "\n")
+	print("Mean Average Precision: {0}".format(mean_average_precision()), end = "\n")
 	print("NDCG@10: {0}".format(NDCG_at_n(N)), end = "\n")
 
 if __name__ == "__main__":
