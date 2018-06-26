@@ -16,7 +16,7 @@ import argparse
 import readline
 # Used to create a typing history buffer.
 # More details are here: https://docs.python.org/3/library/readline.html
-import json # Create a human-readable .json file for index information.
+import json # Create a human-readable JSON file for index information and the like.
 import string # Used to do some regex operations.
 import math
 import os
@@ -43,15 +43,19 @@ CONTENTS = [AUTHORS, BIBLIOGRAPHY, WORDS]
 MOST_RELEVANT = 15 # At most return top `MOST_RELEVANT` results for each query.
 USER_STOP_WORD = "QUIT"
 # When user types `USER_STOP_WORD`, the program ends; it is case-sensitive.
-RELEVANCE_SCORE_THRESHOLD = 3
+RELEVANCE_SCORE_THRESHOLD = 4
 # Filter out ones with relevance score larger than `RELEVANCE_SCORE_THRESHOLD`.
 # The default value is 4 (-1, 1, 2, 3, 4).
+RELEVANCE_SCORE_FIX = 5
+# It is a number used as minuend to convert original relevance scores to
+# NDCG-friendly ones.
 
-# Constants in BM25 model.
+# Constants used in BM25 model.
 K = 1.0
 B = 0.75
 # A constant used in Precision at N and NDCG (Normalised Discounted Cumulated Gain) at N.
-# If `MOST_RELEVANT` is equal to `N`, precision will be the same as P at N.
+# If `MOST_RELEVANT` is equal to `N`, precision will be the same as P at N for Cranfield collection.
+# N.B.: `N` cannot be larger than `MOST_RELEVANT`.
 N = 10
 
 def is_number(word):
@@ -74,7 +78,7 @@ def is_valid(word):
 		return False
 
 def get_arguments():
-	parser = argparse.ArgumentParser(description = "A script used to build BM25 model and relative evaluation methods. If the index .json file is not available, just type `python3 bm25.py` without any extra arguments to generate one in the working directory.")
+	parser = argparse.ArgumentParser(description = "A script used to build BM25 model and relative evaluation methods. If the index JSON file is not available, just type `python3 bm25.py` without any extra arguments to generate one in the working directory.")
 	parser.add_argument("-m", required = False, choices = ["manual", "evaluation"], default = "manual", help = "mode selection; `manual` mode is chosen by default if it is not specified")
 	parser.add_argument("-o", required = False, nargs = "?", const = EVALUATION_PATH, metavar = "FILE NAME", help = "evaluation result output; if `FILE NAME` is not given, the default output file name is `evaluation_output.txt`")
 	return parser.parse_args()
@@ -96,10 +100,10 @@ def process_documents():
 		stemmed_word = stemming[word]
 		if stemmed_word not in term_vectors:
 			term_vectors[stemmed_word] = {}
-		if document_ID not in term_vectors[stemmed_word]:
-			term_vectors[stemmed_word].update({document_ID : 1})
-		else:
+		if document_ID in term_vectors[stemmed_word]:
 			(term_vectors[stemmed_word])[document_ID] += 1
+		else:
+			term_vectors[stemmed_word].update({document_ID : 1})
 
 	stemming = {}
 	term_vectors = {}
@@ -231,16 +235,13 @@ def process_queries():
 	return query_list
 
 def bm25_similarities(query):
-	''' Using `query`, return a descending list with at most top `MOST_RELEVANT` pairs
+	""" Using `query`, return a descending list with at most top `MOST_RELEVANT` pairs
 	    based on BM25 to calculate similarities.
         Pair structure is (Document ID, Similarity).
-	'''
-	# TODO: sorted_d = [(k,v) for k,v in d.items()]
-	# Change data structure.
+	"""
 	similarities = []
-	for index in range(0, nums_of_documents):
-		document_ID = str(index + 1)
-		# Keys in key/value pairs of JSON are always of the type `str`.
+	for document_ID in range(1, nums_of_documents + 1):
+	# Document ID begins from 1.
 		similarity = 0.0
 		for term in query:
 			if term in term_vectors and document_ID in term_vectors[term]:
@@ -249,18 +250,19 @@ def bm25_similarities(query):
 				idf = math.log((nums_of_documents - n_i + 0.5) / (n_i + 0.5), 2)
 				similarity += frequency * (1.0 + K) / (frequency + K * ((1.0 - B) + B * document_lengths[document_ID])) * idf
 		if similarity > 0.0: # Ignore the one with similarity score 0.
-			pair = (int(document_ID), similarity)
+			pair = (document_ID, similarity)
 			similarities.append(pair)
-	if len(similarities) > 1:
-		# Sort results in desceding order.
-		similarities = sorted(similarities, key = lambda x : x[1], reverse = True)
-		if len(similarities) > MOST_RELEVANT:
-			return similarities[0:MOST_RELEVANT]
-	return similarities
-	# It will affect precision and recall.
+	# Sort results in desceding order.
+	similarities = sorted(similarities, key = lambda x : x[1], reverse = True)
+	if len(similarities) > MOST_RELEVANT:
+		return similarities[0:MOST_RELEVANT]
+	else:
+		return similarities
 
 def manual_mode():
 	while True:
+		print("********************************************************************************")
+		# Use 80 asterisks to fill the default width of terminal window.
 		user_query = input("Enter query (type \"QUIT\" to terminate): ")
 		if user_query == USER_STOP_WORD:
 			break
@@ -271,20 +273,21 @@ def manual_mode():
 		for result in bm25_similarities(query_terms):
 			print("{0}\t{1}\t{2}".format(str(rank), result[0], str(result[1])), end = "\n")
 			rank += 1
-		print("**********************************")
 
 def load_relevance_scores():
 	relevance_scores = {}
-	# `relevance` structure: {[KEY] query ID : [Value] [(Document ID, Relevance Score)]}
+	# `relevance_scores` structure: {[KEY] query ID : [Value] [(Document ID, Relevance Score)]}
 	with open(RELEVANCE_PATH, "r") as fp:
 		for line in fp:
 			fields = line.split()
 			query_ID = int(fields[0])
-			if query_ID not in relevance_scores:
-				relevance_scores[query_ID] = [(int(fields[1]), int(fields[2]))]
+			pair = (int(fields[1]), int(fields[2]))
+			if query_ID in relevance_scores:
+				relevance_scores[query_ID].append(pair)
+				# It guarantees no repetition of document IDs for each query.
 			else:
-				relevance_scores[query_ID].append((int(fields[1]), int(fields[2])))
-			# It guarantees no repetition of document IDs for each query.
+				relevance_scores[query_ID] = [pair]
+
 	for query_ID in relevance_scores:
 	# Sort pairs in ascending order for each query; the less the relevance
 	# score is, the more relevant the document is.
@@ -292,8 +295,8 @@ def load_relevance_scores():
 	return relevance_scores
 
 def make_query_results():
-	''' It returns possible relevant documents for each query based on BM25 model.
-	'''
+	""" It returns possible relevant documents for each query based on BM25 model.
+	"""
 	query_list = process_queries()
 	query_results = {}
 	for query_ID in query_list:
@@ -305,7 +308,6 @@ def make_query_results():
 	return query_results
 
 def make_relevance_set(query_ID): # Relevant documents (Rel).
-# TODO: May use dictionary to refactor.
 	relevance_set = set()
 	for pair in relevance_scores[query_ID]:
 		if pair[1] <= RELEVANCE_SCORE_THRESHOLD:
@@ -315,7 +317,6 @@ def make_relevance_set(query_ID): # Relevant documents (Rel).
 	return relevance_set
 
 def make_retrieval_set(query_ID): # Retrieval documents (Ret).
-# TODO: May use dictionary to refactor.
 	retrieval_set = set()
 	for pair in query_results[query_ID]:
 		retrieval_set.add(pair[0])
@@ -375,17 +376,50 @@ def mean_average_precision():
 	mean_average_precision = mean_average_precision / len(query_results)
 	return mean_average_precision
 
-def NDCG_at_n(n):
-	NDCG_at_n = 0.0
-	return NDCG_at_n
+def ndcg_at_n(n):
+	""" It yields a list of NDCGs (from 1 to at most N) of each query separately.
+	"""
+	for query_ID, score_list in relevance_scores.items():
+		relevance_set = make_relevance_set(query_ID)
+		score_list_dict = dict(score_list)
+		# Convert a list of pairs to dictionary for convienence.
+		gain_vector = []
+		for pair in query_results[query_ID]:
+			if pair[0] in relevance_set:
+				gain_vector.append(RELEVANCE_SCORE_FIX - score_list_dict[pair[0]])
+				# Convert original ranking scores to NDCG-usable scores.
+			else:
+				gain_vector.append(0)
+		dcg = [gain_vector[0]]
+		# Discounted Cumulated Gain; put the first item in `dcg`.
+		for i in range(1, len(gain_vector)):
+			dcg.append(gain_vector[i] / math.log(i + 1, 2) + dcg[-1])
+		# Ideal NDCG.
+		ideal_gain_vector = []
+		for pair in score_list:
+			ideal_gain_vector.append(RELEVANCE_SCORE_FIX - score_list_dict[pair[0]])
+		query_results_length = len(query_results[query_ID])
+		ideal_gain_vector_length = len(ideal_gain_vector)
+		ideal_dcg = [ideal_gain_vector[0]]
+		for i in range(1, len(ideal_gain_vector)):
+			ideal_dcg.append(ideal_gain_vector[i] / math.log(i + 1, 2) + ideal_dcg[-1])
+		ndcg_at_n = []
+		for pair in zip(dcg, ideal_dcg):
+			ndcg_at_n.append(pair[0] / pair[1])
+		if len(ndcg_at_n) > n:
+		# Yield at most `n` results for each query.
+			yield query_ID, ndcg_at_n[0:n]
+		else:
+			yield query_ID, ndcg_at_n
 
 def print_evaluation_results():
 	print("Evaluation Results:")
 	print("Precision: {0}".format(precision()), end = "\n")
 	print("Recall: {0}".format(recall()), end = "\n")
-	print("P@10: {0}".format(p_at_n(N)), end = "\n")
+	print("P@{0}: {1}".format(N, p_at_n(N)), end = "\n")
 	print("Mean Average Precision: {0}".format(mean_average_precision()), end = "\n")
-	print("NDCG@10: {0}".format(NDCG_at_n(N)), end = "\n")
+	for query_ID, ndcg in ndcg_at_n(N):
+		print("NDCG@{0} <Query {1}>: {2}".format(N, query_ID, ndcg), end = "\n")
 
 if __name__ == "__main__":
 	stemmer = porter.PorterStemmer()
@@ -399,8 +433,12 @@ if __name__ == "__main__":
 		print("[Loading BM25 index from file.]")
 		with open(INDEX_PATH, "r") as fp:
 			stemming, term_vectors, document_lengths = json.load(fp)
-			# WARNING: JSON does not allow integer keys; key values of variable
-			# loaded from .json file are `str`.
+
+		# Waring: unlike Python, `dict` type in JSON cannot have `int` key;
+		# therefore a conversion is of necessity.
+		document_lengths = {int(ID) : length for ID, length in document_lengths.items()}
+		for term, vector in term_vectors.items():
+			term_vectors[term] = {int(ID) : appearance_times for ID, appearance_times in vector.items()}
 		nums_of_documents = len(document_lengths)
 		# It is used in `bm25_similarities()` function.
 
@@ -416,7 +454,7 @@ if __name__ == "__main__":
 						for entry in pair_list:
 							fp.write("{0} {1} {2}\n".format(query_ID, pair[0], pair[1]))
 	else:
-	# For first-time running, it creates an index .json file and quit.
+	# For first-time running, it creates an index JSON file and exit.
 		print("[Generating the index file.]")
 		with open(INDEX_PATH, "w") as fp:
 			json.dump(process_documents(), fp)
