@@ -14,9 +14,10 @@ import argparse
 # Used to parse program arguments.
 # More details are here: https://docs.python.org/3/library/argparse.html
 import readline
-# Used to create a typing history buffer.
+# Used to create a typing history buffer for `manual` mode.
 # More details are here: https://docs.python.org/3/library/readline.html
-import json # Create a human-readable JSON file for index information and the like.
+import json
+# Used to create a human-readable JSON file for index information and the like.
 import string # Used to do some regex operations.
 import math
 import os
@@ -40,12 +41,17 @@ WORDS = ".W"
 LABELS = [ID, TITLE, AUTHORS, BIBLIOGRAPHY, WORDS]
 CONTENTS = [AUTHORS, BIBLIOGRAPHY, WORDS]
 
-MOST_RELEVANT = 15 # At most return top `MOST_RELEVANT` results for each query.
+DELIMITER_SYMBOL = "*"
+BOUNDARY_LENGTH = 80
+# It decides the length of the boundary between two `manual` queries.
+MOST_RELEVANT = 15
+# At most top `MOST_RELEVANT` results are returned for each query.
 USER_STOP_WORD = "QUIT"
 # When user types `USER_STOP_WORD`, the program ends; it is case-sensitive.
 RELEVANCE_SCORE_THRESHOLD = 4
-# Filter out ones with relevance score larger than `RELEVANCE_SCORE_THRESHOLD`.
-# The default value is 4 (-1, 1, 2, 3, 4).
+# Filter out ones with relevance score larger than `RELEVANCE_SCORE_THRESHOLD`
+# from `QUERY_PATH`. The default value is 4 (-1, 1, 2, 3, 4), which means all
+# documents in it will be reserved.
 RELEVANCE_SCORE_FIX = 5
 # It is a number used as minuend to convert original relevance scores to
 # NDCG-friendly ones.
@@ -53,7 +59,8 @@ RELEVANCE_SCORE_FIX = 5
 # Constants used in BM25 model.
 K = 1.0
 B = 0.75
-# A constant used in Precision at N and NDCG (Normalised Discounted Cumulated Gain) at N.
+
+# A constant used in Precision at N and NDCG at N.
 # If `MOST_RELEVANT` is equal to `N`, precision will be the same as P at N for Cranfield collection.
 # N.B.: `N` cannot be larger than `MOST_RELEVANT`.
 N = 10
@@ -78,9 +85,9 @@ def is_valid(word):
 		return False
 
 def get_arguments():
-	parser = argparse.ArgumentParser(description = "A script used to build BM25 model and relative evaluation methods. If the index JSON file is not available, just type `python3 bm25.py` without any extra arguments to generate one in the working directory.")
+	parser = argparse.ArgumentParser(description = "A script used to build BM25 model and relative evaluation methods. If the index JSON file is not available, just type `python3 bm25.py` to generate one in the working directory and extra arguments will be ignored in this case")
 	parser.add_argument("-m", required = False, choices = ["manual", "evaluation"], default = "manual", help = "mode selection; `manual` mode is chosen by default if it is not specified")
-	parser.add_argument("-o", required = False, nargs = "?", const = EVALUATION_PATH, metavar = "FILE NAME", help = "evaluation result output; if `FILE NAME` is not given, the default output file name is `evaluation_output.txt`")
+	parser.add_argument("-o", required = False, nargs = "?", const = EVALUATION_PATH, metavar = "FILE NAME", help = "BM25 evaluation result output in lines of 3-tuples (query ID, document ID, and its rank [1 - 15]) form; if `FILE NAME` is not given, the default output file name is `evaluation_output.txt`")
 	return parser.parse_args()
 
 def load_stop_words():
@@ -92,6 +99,8 @@ def load_stop_words():
 
 def process_documents():
 	""" Build vectors of each term and calculate lengths of each documents.
+        Also a dictionary containing pairs of original words and stemmed words
+        are returned.
 	"""
 	def add_new_word(word):
 	# A helper function to add a new word in `term_vectors`.
@@ -115,7 +124,7 @@ def process_documents():
 		document_ID = 0
 		length = 0.0
 		for line in fp:
-			current_section = line[0:2]
+			current_section = line[0 : 2]
 			if current_section in LABELS:
 				if current_section == ID:
 					document_lengths[document_ID] = math.sqrt(length)
@@ -130,8 +139,7 @@ def process_documents():
 					length = 0.0
 				section = current_section
 				continue # Update and go to next line immediately.
-
-			if section in CONTENTS:
+			elif section in CONTENTS:
 				line = line.translate(removing_punctuation_map)
 				line = line.replace("--", " ")
 				# Also, treat two consecutive hyphens as a space.
@@ -149,7 +157,6 @@ def process_documents():
 					# And similarly, phrases like "m. i. t." (line 36527) and
 					# "i. e." (line 11820) will be ignored.
 					# "r.m.s." (line 20241) will become "rm" stored in the dictionary after stemming.
-
 					compound = term.replace("-", "")
 					if is_valid(compound):
 						add_new_word(compound)
@@ -180,10 +187,12 @@ def process_documents():
 		document_lengths[document] = document_lengths[document] / average_length
 		# Now document_lengths stores a normalised length for each document.
 
-	# A dictionary for stemming is also returned for further use.
 	return stemming, term_vectors, document_lengths
 
 def process_single_query(query):
+	""" Process single line text.
+        Used by `process_queries` function and `manual` mode.
+	"""
 	def add_new_word(word):
 	# A helper function to add a new word in `query_terms`.
 		if word not in stemming:
@@ -193,7 +202,7 @@ def process_single_query(query):
 			query_terms.append(stemmed_word)
 
 	query_terms = []
-	query = query.strip() # Remove leading and trailing whitespaces.
+	query = query.strip()
 	query = query.translate(removing_punctuation_map)
 	query = query.replace("--", " ")
 	for term in query.split():
@@ -214,18 +223,18 @@ def process_queries():
 		query = []
 		query_ID = 0
 		for line in fp:
-			current_section = line[0:2]
+			current_section = line[0 : 2]
 			if current_section in LABELS:
 				if current_section == ID:
 					query_list[query_ID] = query
 					query = []
 					query_ID += 1
-					# Ignore original query IDs, which is the numbers followed by ".I",
-					# since they are not consecutive.
+					# Ignore original query IDs, which is the numbers followed
+					# by ".I", since they are not consecutive.
 				if current_section == WORDS:
 					section = current_section
 				continue
-			if section in CONTENTS:
+			elif section in CONTENTS:
 				if query == []:
 					query = process_single_query(line)
 				else:
@@ -235,9 +244,8 @@ def process_queries():
 	return query_list
 
 def bm25_similarities(query):
-	""" Using `query`, return a descending list with at most top `MOST_RELEVANT` pairs
-	    based on BM25 to calculate similarities.
-        Pair structure is (Document ID, Similarity).
+	""" It returns a descending list with at most top `MOST_RELEVANT` pairs 
+        (Document ID, Similarity) based on BM25 to calculate similarities.
 	"""
 	similarities = []
 	for document_ID in range(1, nums_of_documents + 1):
@@ -255,14 +263,17 @@ def bm25_similarities(query):
 	# Sort results in desceding order.
 	similarities = sorted(similarities, key = lambda x : x[1], reverse = True)
 	if len(similarities) > MOST_RELEVANT:
-		return similarities[0:MOST_RELEVANT]
+		return similarities[0 : MOST_RELEVANT]
 	else:
 		return similarities
 
 def manual_mode():
+	""" When in `manual` mode, the function will not end until user types "QUIT".
+	"""
 	while True:
-		print("********************************************************************************")
-		# Use 80 asterisks to fill the default width of terminal window.
+		print(DELIMITER_SYMBOL * BOUNDARY_LENGTH)
+		# Print `BOUNDARY_LENGTH` `DELIMITER_SYMBOL`s to fill the default
+		# width of terminal window.
 		user_query = input("Enter query (type \"QUIT\" to terminate): ")
 		if user_query == USER_STOP_WORD:
 			break
@@ -284,7 +295,7 @@ def load_relevance_scores():
 			pair = (int(fields[1]), int(fields[2]))
 			if query_ID in relevance_scores:
 				relevance_scores[query_ID].append(pair)
-				# It guarantees no repetition of document IDs for each query.
+				# It assumes no repetition of document IDs for each query.
 			else:
 				relevance_scores[query_ID] = [pair]
 
@@ -299,6 +310,7 @@ def make_query_results():
 	"""
 	query_list = process_queries()
 	query_results = {}
+	# `query_results` structure: {[KEY] query ID : [Value] [(Document ID, Relevance Score)]}, which is exactly the same structure and length as `relevance_scores`.
 	for query_ID in query_list:
 		rank = 1
 		query_results[query_ID] = []
@@ -323,6 +335,8 @@ def make_retrieval_set(query_ID): # Retrieval documents (Ret).
 	return retrieval_set
 
 def precision():
+	""" It calculates arithmetic mean of precisions for all queries.
+	"""
 	precision = 0.0
 	for query_ID in relevance_scores:
 		relevance_set = make_relevance_set(query_ID)
@@ -332,11 +346,12 @@ def precision():
 			if document_ID in relevance_set:
 				appearance_times += 1
 		precision += appearance_times / len(retrieval_set)
-	precision = precision / len(relevance_scores)
-	# Calculate arithmetic mean of precisions for all queries.
+	precision = precision / len(query_results)
 	return precision
 
 def recall():
+	""" It calculates arithmetic mean of recalls for all queries.
+	"""
 	recall = 0.0
 	for query_ID in relevance_scores:
 		relevance_set = make_relevance_set(query_ID)
@@ -346,11 +361,12 @@ def recall():
 			if document_ID in retrieval_set:
 				appearance_times += 1
 		recall += appearance_times / len(relevance_set)
-	recall = recall / len(relevance_scores)
-	# Calculate arithmetic mean of recalls for all queries.
+	recall = recall / len(query_results)
 	return recall
 
 def p_at_n(n):
+	""" It calculates arithmetic mean of precisions at N for all queries.
+	"""
 	p_at_n = 0.0
 	for query_ID in relevance_scores:
 		relevance_set = make_relevance_set(query_ID)
@@ -363,6 +379,8 @@ def p_at_n(n):
 	return p_at_n
 
 def mean_average_precision():
+	""" It calculates mean average precision for all queries.
+	"""
 	mean_average_precision = 0.0
 	for query_ID in relevance_scores:
 		relevance_set = make_relevance_set(query_ID)
@@ -377,12 +395,14 @@ def mean_average_precision():
 	return mean_average_precision
 
 def ndcg_at_n(n):
-	""" It yields a list of NDCGs (from 1 to at most N) of each query separately.
+	""" It yields a list of NDCGs at up to N of each query separately.
 	"""
 	for query_ID, score_list in relevance_scores.items():
 		relevance_set = make_relevance_set(query_ID)
 		score_list_dict = dict(score_list)
 		# Convert a list of pairs to dictionary for convienence.
+
+		# Step one: gain vector.
 		gain_vector = []
 		for pair in query_results[query_ID]:
 			if pair[0] in relevance_set:
@@ -390,25 +410,28 @@ def ndcg_at_n(n):
 				# Convert original ranking scores to NDCG-usable scores.
 			else:
 				gain_vector.append(0)
+
+		# Step two: DCG (Discounted Cumulated Gain).
 		dcg = [gain_vector[0]]
-		# Discounted Cumulated Gain; put the first item in `dcg`.
+		# Put the first item in `dcg`.
 		for i in range(1, len(gain_vector)):
 			dcg.append(gain_vector[i] / math.log(i + 1, 2) + dcg[-1])
-		# Ideal NDCG.
+
+		# Step three: IDCG (Ideal Discounted Cumulated Gain).
 		ideal_gain_vector = []
 		for pair in score_list:
 			ideal_gain_vector.append(RELEVANCE_SCORE_FIX - score_list_dict[pair[0]])
-		query_results_length = len(query_results[query_ID])
-		ideal_gain_vector_length = len(ideal_gain_vector)
-		ideal_dcg = [ideal_gain_vector[0]]
+		idcg = [ideal_gain_vector[0]]
 		for i in range(1, len(ideal_gain_vector)):
-			ideal_dcg.append(ideal_gain_vector[i] / math.log(i + 1, 2) + ideal_dcg[-1])
+			idcg.append(ideal_gain_vector[i] / math.log(i + 1, 2) + idcg[-1])
+
+		# Step four: NDCG (Normalised Discounted Cumulated Gain) at N.
 		ndcg_at_n = []
-		for pair in zip(dcg, ideal_dcg):
+		for pair in zip(dcg, idcg):
 			ndcg_at_n.append(pair[0] / pair[1])
 		if len(ndcg_at_n) > n:
-		# Yield at most `n` results for each query.
-			yield query_ID, ndcg_at_n[0:n]
+		# And finally, yield at most `n` results for each query.
+			yield query_ID, ndcg_at_n[0 : n]
 		else:
 			yield query_ID, ndcg_at_n
 
@@ -424,7 +447,7 @@ def print_evaluation_results():
 if __name__ == "__main__":
 	stemmer = porter.PorterStemmer()
 	stop_words = load_stop_words()
-	punctuation = string.punctuation[0:12] + string.punctuation[14:]
+	punctuation = string.punctuation[0 : 12] + string.punctuation[14:]
 	removing_punctuation_map = dict((ord(character), " ") for character in punctuation)
 	# Remove all punctuations except full stops and hyphens.
 	args = get_arguments()
@@ -434,7 +457,7 @@ if __name__ == "__main__":
 		with open(INDEX_PATH, "r") as fp:
 			stemming, term_vectors, document_lengths = json.load(fp)
 
-		# Waring: unlike Python, `dict` type in JSON cannot have `int` key;
+		# Warning: unlike Python, `dict` type in JSON cannot have `int` key,
 		# therefore a conversion is of necessity.
 		document_lengths = {int(ID) : length for ID, length in document_lengths.items()}
 		for term, vector in term_vectors.items():
@@ -451,7 +474,7 @@ if __name__ == "__main__":
 			if args.o is not None: # If `-o` option is available.
 				with open(args.o, "w") as fp:
 					for query_ID, pair_list in query_results.items():
-						for entry in pair_list:
+						for pair in pair_list:
 							fp.write("{0} {1} {2}\n".format(query_ID, pair[0], pair[1]))
 	else:
 	# For first-time running, it creates an index JSON file and exit.

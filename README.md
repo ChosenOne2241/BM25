@@ -1,13 +1,13 @@
 # BM25
 The script `bm25.py` searches the [Cranfield collection](http://ir.dcs.gla.ac.uk/resources/test_collections/cran/) using the [BM25](https://en.wikipedia.org/wiki/Okapi_BM25), with queries supplied by the user. And also it offers 5 evaluation methods (precision, recall, MAP, P at N and NDCG at N) to measure the efficiency; [bPref method](http://ws680.nist.gov/publication/get_pdf.cfm?pub_id=150469) (Buckley & Voorhees, "Retrieval Evaluation with Incomplete Information", SIGIR 2004) is not provided here since complete relevance judgments are available.
 
-For the first time one runs the script by simply typing `python3 bm25.py` (and all extra arguments are ignored), a human-readable JSON file called `index.json` is generated, containing a dictionary with terms and their stemming forms, term vectors, and lengths for each document abstract. From the second times onwards, `index.json` must exist in the same directory and is used to calculate ranks. Mode can be selected by using the `-m` flag; possible options are `manual` and `evaluation` and the default one is `manual`. Selecting `evaluation` will run and evaluate results for all queries in the `cran.qry` file. Also, in `evaluation` mode, an output file of evaluation results is created supposing `-o` option is present; the default value is ``evaluation_output.txt`` if no specific file name is given. For each query, there are exactly 15 results to be returned. Each line in this text file has three fields, separated by spaces, as follows:
+For the first time one runs the script by simply typing `python3 bm25.py` (and all extra arguments are ignored), a human-readable JSON file called `index.json` is generated, containing a dictionary with terms and their stemming forms, term vectors, and lengths for each document abstract. From the second times onwards, `index.json` must exist in the same directory of the script and is used to calculate ranks. Mode can be selected by using the `-m` option: possible options are `manual` and `evaluation` and the default one is `manual`. Selecting `evaluation` will run and evaluate results for all queries in the `cran.qry` file. Also, in `evaluation` mode, an output file of BM25 evaluation results is created supposing `-o` option is present; the default value is ``evaluation_output.txt`` if no specific file name is given. For each query, there are exactly `MOST_RELEVANT` results to be returned. Each line in this text file has three fields, separated by spaces, as follows:
 
 1. Query ID.
 2. Document ID.
 3. Rank (beginning at 1 for each query).
 
-And selecting `manual` will allow users to type queries from keyword until a stop word `QUIT` is entered or KeyboardInterrupt exception is raised. And in `manual` mode, the script maintains a buffer for typing history, which means user can use arrow keys to browse history for current session. For each query, *at most* top 15 relevant documents are printed. Type `python3 bm25.py -h` for more help information.
+And selecting `manual` will allow users to type queries from keyword until a stop word "QUIT" is entered or KeyboardInterrupt exception is raised. And in `manual` mode, the script maintains a buffer for typing history, which allows user to use arrow keys to browse history for current session. For each query, *at most* top `MOST_RELEVANT` relevant documents are printed. Type `python3 bm25.py -h` for more help information.
 
 Here is a list of all files in the repository:
 
@@ -15,7 +15,7 @@ Here is a list of all files in the repository:
 * `stopwords.txt` contains a list of words that one should not bother including in feature vectors.
 * `porter.py` is a Python implementation of the Porter stemming algorithm for English, downloaded from [author's main page](https://tartarus.org/martin/PorterStemmer/).
 * And in `cran` directory, there are the following files:
-  * `cran.all.1400` contains 1400 abstracts of aerodynamics journal articles (the document collection).
+  * `cran.all.1400` contains 1400 abstracts of aerodynamics journal articles (the Cranfield document collection).
     * Lines beginning with .I are ids for the abstracts.
     * Lines following .T are titles.
     * Lines following .A are authors.
@@ -30,6 +30,6 @@ Here is a list of all files in the repository:
     * the third number is a number (-1, 1, 2, 3 or 4).
     These numbers represent how related the query is to the given abstract. Unrelated query / abstract pairs are not listed at all (they would get a score of 5): There are 1836 lines in `cranqrel`. If all combinations were listed, there would be 225 * 1400 = 315,000 lines.
     Here we treat -1 as being the best choice for the query, although the specifications do not say. We only use ones with relevance score less than or equal to `RELEVANCE_SCORE_THRESHOLD` (by default 4) and what each score stands for is elaborated in `cranqrel.readme`.
-  * `cranqrel.readme` is the original README file to explain `cranqrel` file.
+  * `cranqrel.readme` is the original README file to elaborate `cranqrel` file.
 
 N.B.: the script may contains some tweaks working only on Cranfield collection, which may not be useful for other kinds of documents; for instance, no `str.lower()` operations are applied since actual contents in Cranfield collection are all lowercase.
